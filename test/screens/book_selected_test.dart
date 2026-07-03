@@ -44,8 +44,9 @@ void main() {
         overrides: overrides());
     await tester.pumpAndSettle();
 
+    // Appears twice now: once in the AppBar title, once in the body heading.
     expect(find.text('New Zest 1 Language Learning English Basic'),
-        findsOneWidget);
+        findsWidgets);
     expect(find.textContaining('Caroline Pina'), findsOneWidget);
     expect(find.text('978-85-92799-05-2'), findsOneWidget);
     expect(find.text('Add to library'), findsOneWidget);
@@ -64,6 +65,6 @@ void main() {
 
     // The book was added and the track list replaced the detail screen.
     expect(fakeStore.added, ['new-zest-1']);
-    expect(find.text('Lista de Faixas'), findsOneWidget);
+    expect(find.text('Tracks'), findsOneWidget);
   });
 }

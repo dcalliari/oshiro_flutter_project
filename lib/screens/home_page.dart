@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/book.dart';
 import '../providers/providers.dart';
 import '../widgets/book_cover.dart';
+import '../widgets/mini_player.dart';
 import '../widgets/state_views.dart';
 import 'search.dart';
 import 'track_list.dart';
@@ -33,6 +34,17 @@ class _HomePageState extends ConsumerState<HomePage>
     setState(() {
       _selectionMode = true;
       _selected.clear();
+      _tab.index = 0;
+    });
+  }
+
+  /// Long-pressing a book jumps straight into selection mode with it selected.
+  void _enterSelectionWith(String bookId) {
+    setState(() {
+      _selectionMode = true;
+      _selected
+        ..clear()
+        ..add(bookId);
       _tab.index = 0;
     });
   }
@@ -144,10 +156,14 @@ class _HomePageState extends ConsumerState<HomePage>
         ),
       ),
       drawer: _HomeDrawer(onManage: _enterSelection),
+      bottomNavigationBar: const MiniPlayer(),
       body: TabBarView(
         controller: _tab,
         children: [
-          _AllBooksTab(onSearch: _openSearch),
+          _AllBooksTab(
+            onSearch: _openSearch,
+            onLongPress: _enterSelectionWith,
+          ),
           _FavoritesTab(onSearch: _openSearch),
         ],
       ),
@@ -177,6 +193,7 @@ class _HomePageState extends ConsumerState<HomePage>
           ),
         ],
       ),
+      bottomNavigationBar: const MiniPlayer(),
       body: _SelectableLibrary(
         selected: _selected,
         onToggle: _toggleSelected,
@@ -188,9 +205,10 @@ class _HomePageState extends ConsumerState<HomePage>
 // --------------------------------------------------------------- all books tab
 
 class _AllBooksTab extends ConsumerWidget {
-  const _AllBooksTab({required this.onSearch});
+  const _AllBooksTab({required this.onSearch, required this.onLongPress});
 
   final VoidCallback onSearch;
+  final void Function(String bookId) onLongPress;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -213,8 +231,8 @@ class _AllBooksTab extends ConsumerWidget {
             onAction: onSearch,
           );
         }
-        if (asGrid) return _BookGrid(books: books);
-        return _ReorderableBookList(books: books);
+        if (asGrid) return _BookGrid(books: books, onLongPress: onLongPress);
+        return _ReorderableBookList(books: books, onLongPress: onLongPress);
       },
     );
   }
@@ -222,9 +240,10 @@ class _AllBooksTab extends ConsumerWidget {
 
 /// List view with drag-and-drop reordering, persisted through the controller.
 class _ReorderableBookList extends ConsumerWidget {
-  const _ReorderableBookList({required this.books});
+  const _ReorderableBookList({required this.books, required this.onLongPress});
 
   final List<Book> books;
+  final void Function(String bookId) onLongPress;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -257,6 +276,7 @@ class _ReorderableBookList extends ConsumerWidget {
             child: const Icon(Icons.drag_handle, color: Colors.grey),
           ),
           onTap: () => _openBook(context, book),
+          onLongPress: () => onLongPress(book.id),
         );
       },
     );
@@ -264,9 +284,10 @@ class _ReorderableBookList extends ConsumerWidget {
 }
 
 class _BookGrid extends StatelessWidget {
-  const _BookGrid({required this.books});
+  const _BookGrid({required this.books, this.onLongPress});
 
   final List<Book> books;
+  final void Function(String bookId)? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -283,6 +304,8 @@ class _BookGrid extends StatelessWidget {
         final book = books[index];
         return InkWell(
           onTap: () => _openBook(context, book),
+          onLongPress:
+              onLongPress == null ? null : () => onLongPress!(book.id),
           borderRadius: BorderRadius.circular(8),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -347,7 +370,8 @@ class _FavoritesTab extends ConsumerWidget {
               title: Text(book.name),
               subtitle:
                   book.authors.isEmpty ? null : Text(book.authors.join(', ')),
-              trailing: const Icon(Icons.bookmark, color: Colors.red),
+              trailing: Icon(Icons.bookmark,
+                  color: Theme.of(context).colorScheme.primary),
               onTap: () => _openBook(context, book),
             );
           },

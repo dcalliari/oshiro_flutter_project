@@ -7,6 +7,7 @@ import '../models/track.dart';
 import '../providers/player_providers.dart';
 import '../providers/providers.dart';
 import '../widgets/book_cover.dart';
+import '../widgets/mini_player.dart';
 import 'player.dart';
 
 class TrackList extends ConsumerStatefulWidget {
@@ -24,7 +25,9 @@ class _TrackListState extends ConsumerState<TrackList> {
 
   Book get book => widget.book;
 
-  Future<void> _download(Track track) async {
+  /// Runs a download and streams its progress into [_progress]. Throws on
+  /// failure so callers can decide how to report it.
+  Future<void> _runDownload(Track track) async {
     setState(() => _progress[track.id] = 0);
     try {
       await ref.read(downloadControllerProvider).download(
@@ -38,14 +41,58 @@ class _TrackListState extends ConsumerState<TrackList> {
     }
   }
 
-  Future<void> _downloadAll() async {
-    for (final track in book.tracks) {
-      final path = await ref
-          .read(localStoreProvider)
-          .downloadPath(book.id, track.id);
-      if (path == null) await _download(track);
+  /// User-initiated single download: reports failure with a retryable snackbar.
+  Future<void> _download(Track track) async {
+    try {
+      await _runDownload(track);
+    } catch (_) {
+      if (mounted) {
+        _showSnack(
+          'Couldn\'t download "${track.title}".',
+          onRetry: () => _download(track),
+        );
+      }
     }
   }
+
+  Future<void> _downloadAll() async {
+    var failures = 0;
+    for (final track in book.tracks) {
+      if (_progress.containsKey(track.id)) continue;
+      final path =
+          await ref.read(localStoreProvider).downloadPath(book.id, track.id);
+      if (path != null) continue;
+      try {
+        await _runDownload(track);
+      } catch (_) {
+        failures++;
+      }
+    }
+    if (!mounted) return;
+    _showSnack(
+      failures == 0
+          ? 'All tracks downloaded.'
+          : "$failures track(s) couldn't be downloaded.",
+    );
+  }
+
+  void _showSnack(String message, {VoidCallback? onRetry}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        action: onRetry == null
+            ? null
+            : SnackBarAction(label: 'Retry', onPressed: onRetry),
+      ),
+    );
+  }
+
+  void _openPlayer(int index) => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => Player(book: book, initialIndex: index),
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -53,16 +100,13 @@ class _TrackListState extends ConsumerState<TrackList> {
     final isFavorite =
         ref.watch(isFavoriteProvider(book.id)).valueOrNull ?? false;
     final handler = ref.watch(audioHandlerProvider).valueOrNull;
-    final downloadedIds = downloads.valueOrNull
-            ?.map((d) => d.trackId)
-            .toSet() ??
-        const <String>{};
+    final downloadedIds =
+        downloads.valueOrNull?.map((d) => d.trackId).toSet() ??
+            const <String>{};
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Lista de Faixas'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text('Tracks'), centerTitle: true),
+      bottomNavigationBar: const MiniPlayer(),
       body: Column(
         children: [
           _Header(
@@ -76,7 +120,7 @@ class _TrackListState extends ConsumerState<TrackList> {
           const Divider(height: 1),
           Expanded(
             child: book.tracks.isEmpty
-                ? const Center(child: Text('Nenhuma faixa disponível.'))
+                ? const Center(child: Text('No tracks available.'))
                 : ListView.builder(
                     itemCount: book.tracks.length,
                     itemBuilder: (context, index) {
@@ -88,13 +132,7 @@ class _TrackListState extends ConsumerState<TrackList> {
                         downloaded: downloadedIds.contains(track.id),
                         progress: _progress[track.id],
                         onDownload: () => _download(track),
-                        onPlay: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                Player(book: book, initialIndex: index),
-                          ),
-                        ),
+                        onPlay: () => _openPlayer(index),
                       );
                     },
                   ),
@@ -120,6 +158,7 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Row(
@@ -138,13 +177,15 @@ class _Header extends StatelessWidget {
                     if (onDownloadAll != null)
                       TextButton.icon(
                         icon: const Icon(Icons.download),
-                        label: const Text('Baixar todos'),
+                        label: const Text('Download all'),
                         onPressed: onDownloadAll,
                       ),
                     IconButton(
                       icon: Icon(
-                        isFavorite ? Icons.bookmark : Icons.bookmark_add_outlined,
-                        color: Colors.red,
+                        isFavorite
+                            ? Icons.bookmark
+                            : Icons.bookmark_add_outlined,
+                        color: scheme.primary,
                       ),
                       onPressed: onToggleFavorite,
                     ),
@@ -159,6 +200,10 @@ class _Header extends StatelessWidget {
   }
 }
 
+/// A track row. Tapping anywhere plays the track (the handler resolves the
+/// source: downloaded file, then mock sample, then streaming URL). Downloading
+/// is an explicit trailing action; the leading icon shows offline availability
+/// or, when this track is the one playing, an equalizer glyph.
 class _TrackTile extends StatelessWidget {
   const _TrackTile({
     required this.track,
@@ -180,29 +225,54 @@ class _TrackTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return ListTile(
-      leading: _nowPlayingIndicator(),
+      leading: _leading(scheme),
       title: Text(track.title),
-      subtitle: progress != null
-          ? LinearProgressIndicator(value: progress == 0 ? null : progress)
-          : null,
-      trailing: downloaded
-          ? const Icon(Icons.arrow_forward_ios, color: Colors.red, size: 20)
-          : const Icon(Icons.download, color: Colors.red),
-      onTap: downloaded ? onPlay : (progress == null ? onDownload : null),
+      subtitle: Text(
+        downloaded ? 'Downloaded' : 'Streaming',
+        style: TextStyle(color: scheme.outline, fontSize: 12),
+      ),
+      trailing: _trailing(scheme),
+      onTap: onPlay,
     );
   }
 
-  /// An equalizer glyph on the track currently loaded in the player, so the
-  /// list reflects what is playing. Absent until playback has started.
-  Widget? _nowPlayingIndicator() {
+  Widget _leading(ColorScheme scheme) {
     final handler = this.handler;
-    if (handler == null || handler.loadedBookId != track.bookId) return null;
-    return StreamBuilder<int?>(
-      stream: handler.player.currentIndexStream,
-      builder: (context, snapshot) => snapshot.data == index
-          ? const Icon(Icons.graphic_eq, color: Colors.red)
-          : const SizedBox(width: 24),
+    if (handler != null && handler.loadedBookId == track.bookId) {
+      return StreamBuilder<int?>(
+        stream: handler.player.currentIndexStream,
+        builder: (context, snapshot) => snapshot.data == index
+            ? Icon(Icons.graphic_eq, color: scheme.primary)
+            : _availabilityIcon(scheme),
+      );
+    }
+    return _availabilityIcon(scheme);
+  }
+
+  Widget _availabilityIcon(ColorScheme scheme) => Icon(
+        downloaded ? Icons.offline_pin : Icons.cloud_outlined,
+        color: downloaded ? scheme.primary : scheme.outline,
+      );
+
+  Widget? _trailing(ColorScheme scheme) {
+    if (progress != null) {
+      return SizedBox(
+        width: 24,
+        height: 24,
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          value: progress == 0 ? null : progress,
+        ),
+      );
+    }
+    if (downloaded) return null;
+    return IconButton(
+      icon: const Icon(Icons.download_outlined),
+      color: scheme.primary,
+      tooltip: 'Download',
+      onPressed: onDownload,
     );
   }
 }

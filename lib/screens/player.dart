@@ -21,16 +21,25 @@ class Player extends ConsumerStatefulWidget {
 }
 
 class _PlayerState extends ConsumerState<Player> {
+  /// Non-null when the handler or the initial load failed; drives the error UI.
+  Object? _loadError;
+
   @override
   void initState() {
     super.initState();
-    // Build/reuse the handler and start the requested track. Errors surface
-    // through the provider's AsyncError below.
-    ref.read(audioHandlerProvider.future).then(
-          (handler) =>
-              handler.setBook(widget.book, initialIndex: widget.initialIndex),
-          onError: (_) {},
-        );
+    _load();
+  }
+
+  /// Builds/reuses the handler and starts the requested track. Any failure is
+  /// captured into [_loadError] and shown instead of silently swallowed.
+  Future<void> _load() async {
+    setState(() => _loadError = null);
+    try {
+      final handler = await ref.read(audioHandlerProvider.future);
+      await handler.setBook(widget.book, initialIndex: widget.initialIndex);
+    } catch (e) {
+      if (mounted) setState(() => _loadError = e);
+    }
   }
 
   @override
@@ -45,11 +54,26 @@ class _PlayerState extends ConsumerState<Player> {
         ),
         centerTitle: true,
       ),
-      body: async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => _Message(icon: Icons.error_outline, text: '$e'),
-        data: (handler) => _PlayerBody(book: widget.book, handler: handler),
+      body: _body(async),
+    );
+  }
+
+  Widget _body(AsyncValue<OshiroAudioHandler> async) {
+    if (_loadError != null) {
+      return _Message(
+        icon: Icons.error_outline,
+        text: "Couldn't play this book.\n$_loadError",
+        onRetry: _load,
+      );
+    }
+    return async.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => _Message(
+        icon: Icons.error_outline,
+        text: '$e',
+        onRetry: _load,
       ),
+      data: (handler) => _PlayerBody(book: widget.book, handler: handler),
     );
   }
 }
@@ -358,10 +382,11 @@ class _VolumeSlider extends StatelessWidget {
 }
 
 class _Message extends StatelessWidget {
-  const _Message({required this.icon, required this.text});
+  const _Message({required this.icon, required this.text, this.onRetry});
 
   final IconData icon;
   final String text;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -371,9 +396,26 @@ class _Message extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 48, color: Colors.red),
+            Icon(icon, size: 48, color: Theme.of(context).colorScheme.error),
             const SizedBox(height: 12),
             Text(text, textAlign: TextAlign.center),
+            if (onRetry != null) ...[
+              const SizedBox(height: 16),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    child: const Text('Back'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: onRetry,
+                    child: const Text('Try again'),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),

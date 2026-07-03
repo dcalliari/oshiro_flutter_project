@@ -6,10 +6,12 @@ import 'package:project_oshiro/models/book.dart';
 import 'package:project_oshiro/providers/providers.dart';
 
 import '../support/book_fixtures.dart';
+import '../support/widget_harness.dart';
 
-/// Overrides the three leaf providers HomePage reads, so the screen renders
-/// without Isar or Firestore. Any of the library/favorites/grid state can be
-/// set per test.
+/// Overrides the leaf providers HomePage reads, so the screen renders without
+/// Isar or Firestore. The audio handler is kept perpetually loading so the
+/// embedded [MiniPlayer] stays collapsed and never boots just_audio. Any of the
+/// library/favorites/grid state can be set per test.
 List<Override> _home({
   List<Book> library = const [],
   List<Book> favorites = const [],
@@ -19,6 +21,7 @@ List<Override> _home({
       libraryProvider.overrideWith((ref) => Stream.value(library)),
       favoritesProvider.overrideWith((ref) => Stream.value(favorites)),
       libraryAsGridProvider.overrideWith((ref) => Stream.value(asGrid)),
+      audioNeverReady,
     ];
 
 Future<void> _pumpHome(tester, List<Override> overrides) async {

@@ -14,9 +14,13 @@ import '../models/track.dart';
 ///
 /// A "queue" here is the ordered track list of one book: each track plays from
 /// its downloaded file when present, otherwise it streams from the remote URL
-/// (or, in mock mode, from a bundled sample — see [_resolveSource]). Playback
-/// position is persisted per track in [LocalStore] so a track resumes where it
-/// was left off.
+/// (or, in mock mode, from a bundled sample — see [_resolveSource]).
+///
+/// Playback position is persisted per track in [LocalStore]. Resume applies to
+/// the track a user explicitly opens via [setBook]: it starts from the last
+/// saved position. Moving on with next/previous or letting a track auto-advance
+/// starts the following track from its beginning (not from its saved position),
+/// which keeps sequential listening predictable.
 class OshiroAudioHandler extends BaseAudioHandler with SeekHandler {
   OshiroAudioHandler(this._store) {
     _wirePlayerToService();
@@ -42,7 +46,7 @@ class OshiroAudioHandler extends BaseAudioHandler with SeekHandler {
 
   /// Loads [book]'s tracks as the queue and starts playing [initialIndex],
   /// resuming that track from its last saved position. Re-selecting the book
-  /// that is already loaded just moves to the requested track.
+  /// that is already loaded just moves to the requested track (from its start).
   Future<void> setBook(Book book, {int initialIndex = 0}) async {
     if (_bookId == book.id && _tracks.length == book.tracks.length) {
       if (_player.currentIndex != initialIndex) {

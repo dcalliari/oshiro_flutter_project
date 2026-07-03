@@ -130,9 +130,11 @@ class _SearchTile extends ConsumerWidget {
               child: Icon(Icons.check_circle,
                   color: Theme.of(context).colorScheme.primary, size: 24),
             )
-          : const Tooltip(
+          : Tooltip(
               message: 'View details',
-              child: Icon(Icons.add_circle_outline, color: Colors.red, size: 26),
+              child: Icon(Icons.chevron_right,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  size: 26),
             ),
       onTap: () => Navigator.push(
         context,

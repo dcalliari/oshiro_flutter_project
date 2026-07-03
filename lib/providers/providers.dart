@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../config/app_mode.dart';
@@ -30,32 +31,31 @@ final booksProvider = StreamProvider<List<Book>>(
   (ref) => ref.watch(bookRepositoryProvider).watchBooks(),
 );
 
-final bookProvider = FutureProvider.family<Book?, String>(
+final bookProvider = FutureProvider.autoDispose.family<Book?, String>(
   (ref, id) => ref.watch(bookRepositoryProvider).getBook(id),
 );
 
 // ------------------------------------------------------------------ library
 
-/// Library books in user order, joined from local entries + catalog metadata.
-final libraryProvider = StreamProvider<List<Book>>((ref) async* {
+/// Library books in user order. The user's entries (id + order) come from the
+/// local store; metadata is joined in memory against the streamed [booksProvider]
+/// catalog, so there is no per-entry `getBook` round-trip.
+final libraryProvider = StreamProvider<List<Book>>((ref) {
   final store = ref.watch(localStoreProvider);
-  final repo = ref.watch(bookRepositoryProvider);
-  await for (final entries in store.watchLibrary()) {
-    yield await _resolve(repo, entries);
-  }
+  final catalog = ref.watch(booksProvider).valueOrNull ?? const <Book>[];
+  return store.watchLibrary().map((entries) => _joinCatalog(entries, catalog));
 });
 
 /// Favorite subset, in user order.
-final favoritesProvider = StreamProvider<List<Book>>((ref) async* {
+final favoritesProvider = StreamProvider<List<Book>>((ref) {
   final store = ref.watch(localStoreProvider);
-  final repo = ref.watch(bookRepositoryProvider);
-  await for (final entries in store.watchFavorites()) {
-    yield await _resolve(repo, entries);
-  }
+  final catalog = ref.watch(booksProvider).valueOrNull ?? const <Book>[];
+  return store.watchFavorites().map((entries) => _joinCatalog(entries, catalog));
 });
 
 /// Whether a given book is already in the library (reactive).
-final isInLibraryProvider = StreamProvider.family<bool, String>((ref, bookId) {
+final isInLibraryProvider =
+    StreamProvider.autoDispose.family<bool, String>((ref, bookId) {
   final store = ref.watch(localStoreProvider);
   return store.watchLibrary().map(
         (entries) => entries.any((e) => e.bookId == bookId),
@@ -63,21 +63,27 @@ final isInLibraryProvider = StreamProvider.family<bool, String>((ref, bookId) {
 });
 
 /// Whether a given book is favorited (reactive).
-final isFavoriteProvider = StreamProvider.family<bool, String>((ref, bookId) {
+final isFavoriteProvider =
+    StreamProvider.autoDispose.family<bool, String>((ref, bookId) {
   final store = ref.watch(localStoreProvider);
   return store.watchLibrary().map(
         (entries) => entries.any((e) => e.bookId == bookId && e.favorite),
       );
 });
 
-Future<List<Book>> _resolve(
-  BookRepository repo,
-  List<LibraryBook> entries,
-) async {
+/// Joins ordered library entries to catalog metadata, dropping orphans (a book
+/// that vanished from the catalog) so a stale local entry never crashes a list.
+List<Book> _joinCatalog(List<LibraryBook> entries, List<Book> catalog) {
+  final byId = {for (final b in catalog) b.id: b};
   final books = <Book>[];
   for (final e in entries) {
-    final book = await repo.getBook(e.bookId);
-    if (book != null) books.add(book);
+    final book = byId[e.bookId];
+    if (book == null) {
+      debugPrint('libraryProvider: no catalog book "${e.bookId}"; '
+          'skipping orphan library entry.');
+      continue;
+    }
+    books.add(book);
   }
   return books;
 }
@@ -102,19 +108,32 @@ class LibraryController {
 
 // ------------------------------------------------------------------- search
 
-final searchQueryProvider = StateProvider<String>((ref) => '');
+// autoDispose so query + results reset when the Search screen closes, instead
+// of leaking the previous session's text into the next open.
+final searchQueryProvider = StateProvider.autoDispose<String>((ref) => '');
 
-final searchResultsProvider = FutureProvider<List<Book>>((ref) async {
+final searchResultsProvider = FutureProvider.autoDispose<List<Book>>((ref) async {
   final query = ref.watch(searchQueryProvider).trim();
   if (query.isEmpty) return const [];
-  return ref.watch(bookRepositoryProvider).search(query);
+
+  // Debounce: a keystroke re-runs this provider and disposes the prior run;
+  // bail after the delay if superseded, so only the settled query does work.
+  var active = true;
+  ref.onDispose(() => active = false);
+  await Future<void>.delayed(const Duration(milliseconds: 300));
+  if (!active) return const [];
+
+  // Filter the already-streamed catalog instead of re-fetching per keystroke.
+  final catalog = ref.read(booksProvider).valueOrNull ??
+      await ref.read(bookRepositoryProvider).getBooks();
+  return filterBooks(catalog, query);
 });
 
 // ---------------------------------------------------------------- downloads
 
 /// Downloaded tracks for a book (reactive).
 final downloadsForBookProvider =
-    StreamProvider.family<List<DownloadedTrack>, String>(
+    StreamProvider.autoDispose.family<List<DownloadedTrack>, String>(
   (ref, bookId) => ref.watch(localStoreProvider).watchDownloadsForBook(bookId),
 );
 
