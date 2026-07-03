@@ -1,7 +1,7 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -75,11 +75,13 @@ class FileStorageRepository with _ScopedPaths implements StorageRepository {
   }
 }
 
-/// Simulates downloads offline: emits fake progress then writes a small
-/// placeholder file at the scoped path so existence/deletion flows behave like
-/// the real repository. The bytes are not valid audio — real playable samples
-/// are out of scope for the foundation phase.
+/// Simulates downloads offline: emits fake progress then writes a real, short
+/// audio sample (a bundled 440 Hz tone) at the scoped path. Because the bytes
+/// are valid MP3, mock downloads are actually playable, so the player works
+/// end to end without a backend.
 class MockStorageRepository with _ScopedPaths implements StorageRepository {
+  static const _sampleAsset = 'assets/audio/mock_sample.mp3';
+
   @override
   Future<String> download(Track track, {ProgressCallback? onProgress}) async {
     for (final step in const [0.25, 0.5, 0.75, 1.0]) {
@@ -87,9 +89,8 @@ class MockStorageRepository with _ScopedPaths implements StorageRepository {
       onProgress?.call(step);
     }
     final path = await pathFor(track);
-    await File(path).writeAsBytes(Uint8List.fromList(
-      'mock-audio:${track.bookId}/${track.id}'.codeUnits,
-    ));
+    final sample = await rootBundle.load(_sampleAsset);
+    await File(path).writeAsBytes(sample.buffer.asUint8List());
     return path;
   }
 }

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../audio/audio_handler.dart';
 import '../models/book.dart';
 import '../models/track.dart';
+import '../providers/player_providers.dart';
 import '../providers/providers.dart';
 import '../widgets/book_cover.dart';
 import 'player.dart';
@@ -50,6 +52,7 @@ class _TrackListState extends ConsumerState<TrackList> {
     final downloads = ref.watch(downloadsForBookProvider(book.id));
     final isFavorite =
         ref.watch(isFavoriteProvider(book.id)).valueOrNull ?? false;
+    final handler = ref.watch(audioHandlerProvider).valueOrNull;
     final downloadedIds = downloads.valueOrNull
             ?.map((d) => d.trackId)
             .toSet() ??
@@ -80,21 +83,18 @@ class _TrackListState extends ConsumerState<TrackList> {
                       final track = book.tracks[index];
                       return _TrackTile(
                         track: track,
+                        index: index,
+                        handler: handler,
                         downloaded: downloadedIds.contains(track.id),
                         progress: _progress[track.id],
                         onDownload: () => _download(track),
-                        onPlay: () async {
-                          final path = await ref
-                              .read(localStoreProvider)
-                              .downloadPath(book.id, track.id);
-                          if (path == null || !context.mounted) return;
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => Player(track: track, path: path),
-                            ),
-                          );
-                        },
+                        onPlay: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                Player(book: book, initialIndex: index),
+                          ),
+                        ),
                       );
                     },
                   ),
@@ -162,6 +162,8 @@ class _Header extends StatelessWidget {
 class _TrackTile extends StatelessWidget {
   const _TrackTile({
     required this.track,
+    required this.index,
+    required this.handler,
     required this.downloaded,
     required this.progress,
     required this.onDownload,
@@ -169,6 +171,8 @@ class _TrackTile extends StatelessWidget {
   });
 
   final Track track;
+  final int index;
+  final OshiroAudioHandler? handler;
   final bool downloaded;
   final double? progress;
   final VoidCallback onDownload;
@@ -177,6 +181,7 @@ class _TrackTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
+      leading: _nowPlayingIndicator(),
       title: Text(track.title),
       subtitle: progress != null
           ? LinearProgressIndicator(value: progress == 0 ? null : progress)
@@ -185,6 +190,19 @@ class _TrackTile extends StatelessWidget {
           ? const Icon(Icons.arrow_forward_ios, color: Colors.red, size: 20)
           : const Icon(Icons.download, color: Colors.red),
       onTap: downloaded ? onPlay : (progress == null ? onDownload : null),
+    );
+  }
+
+  /// An equalizer glyph on the track currently loaded in the player, so the
+  /// list reflects what is playing. Absent until playback has started.
+  Widget? _nowPlayingIndicator() {
+    final handler = this.handler;
+    if (handler == null || handler.loadedBookId != track.bookId) return null;
+    return StreamBuilder<int?>(
+      stream: handler.player.currentIndexStream,
+      builder: (context, snapshot) => snapshot.data == index
+          ? const Icon(Icons.graphic_eq, color: Colors.red)
+          : const SizedBox(width: 24),
     );
   }
 }
