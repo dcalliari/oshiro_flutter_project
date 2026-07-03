@@ -1,134 +1,92 @@
 import 'package:flutter/material.dart';
-import 'package:project_oshiro/screens/track_list.dart';
-import 'package:project_oshiro/utils/file_manager.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class BookSelected extends StatefulWidget {
-  final book;
+import '../models/book.dart';
+import '../providers/providers.dart';
+import '../widgets/book_cover.dart';
+import 'track_list.dart';
+
+/// Book detail shown for a book not yet in the library, with an "add" action.
+class BookSelected extends ConsumerWidget {
   const BookSelected({super.key, required this.book});
 
-  @override
-  State<BookSelected> createState() => _BookSelectedState();
-}
-
-class _BookSelectedState extends State<BookSelected> {
-  late FileManager fileManager;
-  @override
-  void initState() {
-    fileManager = FileManager(book: widget.book);
-    fileManager.readFile();
-    super.initState();
-  }
-
-  Future _bookToLibrary() {
-    return fileManager.writeFile(false);
-  }
+  final Book book;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
-      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        toolbarHeight: 35,
-        forceMaterialTransparency: true,
         automaticallyImplyLeading: false,
         actions: [
           IconButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              icon: const Icon(Icons.close, size: 30.0))
+            icon: const Icon(Icons.close, size: 28),
+            onPressed: () => Navigator.pop(context),
+          ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(15.0),
-        child: ListView(
-          children: [
-            Column(
-              children: [
-                Image.network(
-                  widget.book["cover-url"],
-                  width: 130,
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  widget.book["name"],
-                  textAlign: TextAlign.center,
-                  textScaleFactor: 1.4,
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Expanded(
-                        child: Text("Autores:",
-                            textAlign: TextAlign.right, textScaleFactor: 1.0)),
-                    const VerticalDivider(width: 8),
-                    Expanded(
-                        child: Text(widget.book["authors"].join("\n"),
-                            textScaleFactor: 1.0))
-                  ],
-                ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Expanded(
-                        child: Text("Editora:",
-                            textAlign: TextAlign.right, textScaleFactor: 1.0)),
-                    const VerticalDivider(width: 8),
-                    Expanded(
-                        child: Text(widget.book["publisher"],
-                            textScaleFactor: 1.0))
-                  ],
-                ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Expanded(
-                        child: Text("Publicado:",
-                            textAlign: TextAlign.right, textScaleFactor: 1.0)),
-                    const VerticalDivider(width: 8),
-                    Expanded(
-                        child: Text(widget.book["published"],
-                            textScaleFactor: 1.0))
-                  ],
-                ),
-                const SizedBox(height: 20),
-                TextButton(
-                  style: TextButton.styleFrom(
-                    backgroundColor: Colors.amberAccent[700],
-                  ),
-                  onPressed: () {
-                    _bookToLibrary();
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => TrackList(book: widget.book),
-                      ),
-                    );
-                  },
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.download,
-                        color: Colors.white,
-                      ),
-                      Text(
-                        style: TextStyle(color: Colors.white),
-                        ' Adicionar esse Livro',
-                        textScaleFactor: 1.4,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Center(
+            child: SizedBox(
+              width: 140,
+              height: 190,
+              child: BookCover(url: book.coverUrl),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            book.name,
+            textAlign: TextAlign.center,
+            style: Theme.of(context)
+                .textTheme
+                .titleLarge
+                ?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 20),
+          _MetaRow(label: 'Autores', value: book.authors.join('\n')),
+          if (book.publisher != null)
+            _MetaRow(label: 'Editora', value: book.publisher!),
+          if (book.published != null)
+            _MetaRow(label: 'Publicado', value: book.published!),
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            icon: const Icon(Icons.add),
+            label: const Text('Adicionar esse Livro'),
+            onPressed: () async {
+              await ref.read(libraryControllerProvider).add(book.id);
+              if (!context.mounted) return;
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (_) => TrackList(book: book)),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetaRow extends StatelessWidget {
+  const _MetaRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Text('$label:', textAlign: TextAlign.right),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Text(value)),
+        ],
       ),
     );
   }

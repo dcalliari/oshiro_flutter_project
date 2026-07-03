@@ -1,304 +1,147 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:project_oshiro/screens/search.dart';
-import 'package:project_oshiro/screens/track_list.dart';
-import 'package:project_oshiro/utils/file_manager.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class HomePage extends StatefulWidget {
+import '../models/book.dart';
+import '../providers/providers.dart';
+import '../widgets/book_cover.dart';
+import 'search.dart';
+import 'track_list.dart';
+
+class HomePage extends ConsumerWidget {
   const HomePage({super.key});
 
   @override
-  State<HomePage> createState() => _HomePageState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    final library = ref.watch(libraryProvider);
+    final favorites = ref.watch(favoritesProvider);
 
-class _HomePageState extends State<HomePage> {
-  List _allResults = [];
-  List _booksList = [];
-  List _favsList = [];
-  final _bookFiles = [];
-  final _favFiles = [];
-  late FileManager _fileManager;
-  final db = FirebaseFirestore.instance;
-
-  @override
-  void didChangeDependencies() {
-    getClientStream();
-    super.didChangeDependencies();
-  }
-
-  resultList() async {
-    var showResults = [];
-    var favs = [];
-    for (var book in _allResults) {
-      await checkFile(book);
-      var name = book.id;
-      for (var book0 in _bookFiles) {
-        if (name == book0) {
-          showResults.add(book);
-        }
-      }
-      for (var book1 in _favFiles) {
-        if (name == book1) {
-          favs.add(book);
-        }
-      }
-    }
-    setState(() {
-      _booksList = showResults;
-      _favsList = favs;
-    });
-  }
-
-  checkFile(book) async {
-    _fileManager = FileManager(book: book);
-    var isFile = await _fileManager.readFile();
-    setState(() {
-      if (isFile[0] != '') {
-        _bookFiles.add(isFile[0]);
-        if (isFile[1] == "true") {
-          _favFiles.add(isFile[0]);
-        }
-      }
-    });
-  }
-
-  getClientStream() async {
-    var data = await db.collection('books').get().then((data) => data.docs);
-
-    setState(() {
-      _allResults = data;
-    });
-    resultList();
-  }
-
-  @override
-  Widget build(BuildContext context) {
     return DefaultTabController(
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text(
-            'Biblioteca',
-          ),
+          title: const Text('Biblioteca'),
+          centerTitle: true,
           actions: [
             IconButton(
               icon: const Icon(Icons.search),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const Search(),
-                  ),
-                );
-              },
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const Search()),
+              ),
             ),
           ],
-          centerTitle: true,
           bottom: const TabBar(
             tabs: [
-              Tab(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(width: 30.0),
-                    Text(
-                      'Todos',
-                      textScaleFactor: 1.5,
-                    ),
-                    SizedBox(width: 30.0),
-                  ],
-                ),
-              ),
-              Tab(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(width: 25.0),
-                    Icon(Icons.bookmark),
-                    Text(
-                      'Favoritos',
-                      textScaleFactor: 1.5,
-                    ),
-                    SizedBox(width: 25.0),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          backgroundColor: Colors.white,
-          shadowColor: Colors.black,
-        ),
-        drawer: Drawer(
-          backgroundColor: Colors.white,
-          child: ListView(
-            padding: EdgeInsets.zero,
-            children: [
-              SizedBox(
-                height: 100,
-                child: DrawerHeader(
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 20.0,
-                    horizontal: 15.0,
-                  ),
-                  child: const Text('Conteúdo'),
-                ),
-              ),
-              ListTile(
-                leading: const Icon(Icons.list),
-                title: const Text('Exibir em Lista'),
-                onTap: () {},
-              ),
-              ListTile(
-                leading: const Icon(Icons.delete),
-                title: const Text('Excluir Livros'),
-                onTap: () {},
-              ),
+              Tab(text: 'Todos'),
+              Tab(icon: Icon(Icons.bookmark), text: 'Favoritos'),
             ],
           ),
         ),
+        drawer: const _HomeDrawer(),
         body: TabBarView(
           children: [
-            Scaffold(
-              backgroundColor: Colors.grey[100],
-              // TODO: Use reorderables.dart
-              body: _booksList.isNotEmpty
-                  ? ListView.builder(
-                      itemCount: _booksList.length,
-                      itemBuilder: (context, index) {
-                        return Material(
-                          child: InkWell(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) =>
-                                      TrackList(book: _booksList[index]),
-                                ),
-                              );
-                            },
-                            child: ListTile(
-                              visualDensity: const VisualDensity(vertical: 4),
-                              contentPadding:
-                                  const EdgeInsets.symmetric(horizontal: 18),
-                              minLeadingWidth: 55,
-                              leading:
-                                  Image.network(_booksList[index]['cover-url']),
-                              title: Text(_booksList[index]['name'],
-                                  textScaleFactor: 1.1),
-                              subtitle: const SizedBox(height: 20),
-                              trailing: const Icon(
-                                Icons.arrow_forward_ios,
-                                color: Colors.red,
-                                size: 25,
-                              ),
-                            ),
-                          ),
-                        );
-                      })
-                  : Center(
-                      child: Column(
-                        children: [
-                          const SizedBox(height: 20.0),
-                          const Text(
-                            'Sem livros na biblioteca.',
-                            textScaleFactor: 1.7,
-                          ),
-                          const SizedBox(height: 20.0),
-                          TextButton(
-                            style: TextButton.styleFrom(
-                              backgroundColor: Colors.white,
-                              minimumSize: const Size(300, 20),
-                            ),
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => const Search(),
-                                ),
-                              );
-                            },
-                            child: const Text(
-                              'Buscar',
-                              textScaleFactor: 1.7,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+            _BookList(
+              books: library,
+              emptyLabel: 'Sem livros na biblioteca.',
             ),
-            Scaffold(
-              backgroundColor: Colors.grey[100],
-              // TODO: Use reorderables.dart
-              body: _favsList.isNotEmpty
-                  ? ListView.builder(
-                      itemCount: _favsList.length,
-                      itemBuilder: (context, index) {
-                        return Material(
-                          child: InkWell(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) =>
-                                      TrackList(book: _favsList[index]),
-                                ),
-                              );
-                            },
-                            child: ListTile(
-                              visualDensity: const VisualDensity(vertical: 4),
-                              contentPadding:
-                                  const EdgeInsets.symmetric(horizontal: 18),
-                              minLeadingWidth: 55,
-                              leading:
-                                  Image.network(_favsList[index]['cover-url']),
-                              title: Text(_favsList[index]['name'],
-                                  textScaleFactor: 1.1),
-                              subtitle: const SizedBox(height: 20),
-                              trailing: const Icon(
-                                Icons.arrow_forward_ios,
-                                color: Colors.red,
-                                size: 25,
-                              ),
-                            ),
-                          ),
-                        );
-                      })
-                  : Center(
-                      child: Column(
-                        children: [
-                          const SizedBox(height: 20.0),
-                          const Text(
-                            'Sem favoritos marcados.',
-                            textScaleFactor: 1.7,
-                          ),
-                          const SizedBox(height: 20.0),
-                          TextButton(
-                            style: TextButton.styleFrom(
-                              backgroundColor: Colors.white,
-                              minimumSize: const Size(300, 20),
-                            ),
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => const Search(),
-                                ),
-                              );
-                            },
-                            child: const Text(
-                              'Buscar',
-                              textScaleFactor: 1.7,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+            _BookList(
+              books: favorites,
+              emptyLabel: 'Sem favoritos marcados.',
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _BookList extends StatelessWidget {
+  const _BookList({required this.books, required this.emptyLabel});
+
+  final AsyncValue<List<Book>> books;
+  final String emptyLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return books.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('Erro ao carregar: $e')),
+      data: (list) {
+        if (list.isEmpty) return _Empty(label: emptyLabel);
+        return ListView.builder(
+          itemCount: list.length,
+          itemBuilder: (context, index) {
+            final book = list[index];
+            return ListTile(
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+              leading: SizedBox(
+                width: 48,
+                child: BookCover(url: book.coverUrl),
+              ),
+              title: Text(book.name),
+              trailing: const Icon(Icons.arrow_forward_ios,
+                  color: Colors.red, size: 20),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => TrackList(book: book)),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _Empty extends StatelessWidget {
+  const _Empty({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 20),
+          FilledButton.tonal(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const Search()),
+            ),
+            child: const Text('Buscar'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HomeDrawer extends StatelessWidget {
+  const _HomeDrawer();
+
+  @override
+  Widget build(BuildContext context) {
+    return Drawer(
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          const DrawerHeader(child: Text('Conteúdo')),
+          // TODO(phase-4): wire list/grid toggle and book removal.
+          ListTile(
+            leading: const Icon(Icons.list),
+            title: const Text('Exibir em Lista'),
+            onTap: () => Navigator.pop(context),
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete),
+            title: const Text('Excluir Livros'),
+            onTap: () => Navigator.pop(context),
+          ),
+        ],
       ),
     );
   }

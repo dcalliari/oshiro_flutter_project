@@ -1,24 +1,42 @@
-import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:project_oshiro/screens/home_page.dart';
-import 'package:project_oshiro/utils/firebase_options.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-void main() async {
+import 'config/app_mode.dart';
+import 'data/local/local_store.dart';
+import 'firebase_options.dart';
+import 'providers/providers.dart';
+import 'screens/home_page.dart';
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
+
+  // Real backend only where Firebase is configured; elsewhere the app runs on
+  // the mock repositories (see [useMock]).
+  if (!useMock) {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  }
+
+  final localStore = await LocalStore.open();
+
+  runApp(
+    ProviderScope(
+      overrides: [localStoreProvider.overrideWithValue(localStore)],
+      child: const OshiroApp(),
+    ),
   );
-  runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class OshiroApp extends StatelessWidget {
+  const OshiroApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Project Oshiro',
+      title: 'Oshiro',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.red),
         useMaterial3: true,

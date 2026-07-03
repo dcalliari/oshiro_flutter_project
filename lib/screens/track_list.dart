@@ -1,250 +1,190 @@
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:dio/dio.dart';
-import 'package:project_oshiro/screens/home_page.dart';
-import 'package:project_oshiro/screens/player.dart';
-import 'package:project_oshiro/utils/file_manager.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class TrackList extends StatefulWidget {
-  final book;
+import '../models/book.dart';
+import '../models/track.dart';
+import '../providers/providers.dart';
+import '../widgets/book_cover.dart';
+import 'player.dart';
+
+class TrackList extends ConsumerStatefulWidget {
   const TrackList({super.key, required this.book});
 
+  final Book book;
+
   @override
-  State<TrackList> createState() => _TrackListState();
+  ConsumerState<TrackList> createState() => _TrackListState();
 }
 
-class _TrackListState extends State<TrackList> {
-  late SharedPreferences prefs;
-  late Future<ListResult> futureFiles;
-  late FileManager fileManager;
-  bool downloaded = false;
-  bool isFavorite = false;
-  final storage = FirebaseStorage.instance;
-  Map<int, double> downloadProgress = {};
+class _TrackListState extends ConsumerState<TrackList> {
+  /// Live download progress by track id (absent when not downloading).
+  final Map<String, double> _progress = {};
 
-  @override
-  void initState() {
-    _loadPrefs();
-    futureFiles = storage.ref('/books/${widget.book.id}/audios').listAll();
-    fileManager = FileManager(book: widget.book);
-    super.initState();
-  }
+  Book get book => widget.book;
 
-  Future _loadPrefs() async {
-    final _prefs = await SharedPreferences.getInstance();
-    setState(() {
-      prefs = _prefs;
-      var id = widget.book.id;
-      downloaded = prefs.getBool('${id}downloaded') ?? false;
-      isFavorite = prefs.getBool('${id}favorite') ?? false;
-    });
-  }
-
-  Future downloadAll() async {
-    var files = await futureFiles;
-    int index = 0;
-    for (var item in files.items) {
-      downloadFile(index, item);
-      index++;
+  Future<void> _download(Track track) async {
+    setState(() => _progress[track.id] = 0);
+    try {
+      await ref.read(downloadControllerProvider).download(
+            track,
+            onProgress: (p) {
+              if (mounted) setState(() => _progress[track.id] = p);
+            },
+          );
+    } finally {
+      if (mounted) setState(() => _progress.remove(track.id));
     }
-    setState(() {
-      downloaded = true;
-      prefs.setBool('${widget.book.id}downloaded', true);
-    });
   }
 
-  Future downloadFile(int index, Reference ref) async {
-    final dir = await getApplicationDocumentsDirectory();
-    final url = await ref.getDownloadURL();
-    final id = widget.book.id;
-    final path = '${dir.path}/$id/audios/${ref.name}';
-    await Dio().download(
-      url,
-      path,
-      onReceiveProgress: (count, total) {
-        double progress = count / total;
-        setState(() {
-          downloadProgress[index] = progress;
-          if (downloadProgress[index] == 1.0) {
-            downloadProgress.remove(index);
-            prefs.setString(ref.name, path);
-          }
-        });
-      },
-    );
-  }
-
-  Future _bookToFavorite(bool _bool) {
-    setState(() {
-      isFavorite = _bool;
-      prefs.setBool('${widget.book.id}favorite', _bool);
-    });
-    return fileManager.writeFile(_bool);
+  Future<void> _downloadAll() async {
+    for (final track in book.tracks) {
+      final path = await ref
+          .read(localStoreProvider)
+          .downloadPath(book.id, track.id);
+      if (path == null) await _download(track);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 3,
-      child: Scaffold(
-        appBar: AppBar(
-          scrolledUnderElevation: 0.0,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const HomePage(),
-                ),
-              );
-            },
+    final downloads = ref.watch(downloadsForBookProvider(book.id));
+    final isFavorite =
+        ref.watch(isFavoriteProvider(book.id)).valueOrNull ?? false;
+    final downloadedIds = downloads.valueOrNull
+            ?.map((d) => d.trackId)
+            .toSet() ??
+        const <String>{};
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Lista de Faixas'),
+        centerTitle: true,
+      ),
+      body: Column(
+        children: [
+          _Header(
+            book: book,
+            isFavorite: isFavorite,
+            onToggleFavorite: () => ref
+                .read(libraryControllerProvider)
+                .setFavorite(book.id, !isFavorite),
+            onDownloadAll: book.hasTracks ? _downloadAll : null,
           ),
-          centerTitle: true,
-          title: const Text('Lista de Faixas'),
-          bottom: AppBar(
-            scrolledUnderElevation: 0.0,
-            automaticallyImplyLeading: false,
-            toolbarHeight: 180,
-            backgroundColor: Colors.grey[200],
-            title: Row(
+          const Divider(height: 1),
+          Expanded(
+            child: book.tracks.isEmpty
+                ? const Center(child: Text('Nenhuma faixa disponível.'))
+                : ListView.builder(
+                    itemCount: book.tracks.length,
+                    itemBuilder: (context, index) {
+                      final track = book.tracks[index];
+                      return _TrackTile(
+                        track: track,
+                        downloaded: downloadedIds.contains(track.id),
+                        progress: _progress[track.id],
+                        onDownload: () => _download(track),
+                        onPlay: () async {
+                          final path = await ref
+                              .read(localStoreProvider)
+                              .downloadPath(book.id, track.id);
+                          if (path == null || !context.mounted) return;
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => Player(track: track, path: path),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Header extends StatelessWidget {
+  const _Header({
+    required this.book,
+    required this.isFavorite,
+    required this.onToggleFavorite,
+    required this.onDownloadAll,
+  });
+
+  final Book book;
+  final bool isFavorite;
+  final VoidCallback onToggleFavorite;
+  final VoidCallback? onDownloadAll;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(width: 90, height: 120, child: BookCover(url: book.coverUrl)),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Image.network(widget.book['cover-url'], scale: 2.1),
-                const VerticalDivider(width: 15),
-                Expanded(
-                  child: Column(
-                    children: [
-                      Text(
-                        widget.book['name'],
-                        textScaleFactor: 1.0,
-                        maxLines: 4,
+                Text(book.name, maxLines: 4, overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    if (onDownloadAll != null)
+                      TextButton.icon(
+                        icon: const Icon(Icons.download),
+                        label: const Text('Baixar todos'),
+                        onPressed: onDownloadAll,
                       ),
-                      const SizedBox(
-                        height: 35,
+                    IconButton(
+                      icon: Icon(
+                        isFavorite ? Icons.bookmark : Icons.bookmark_add_outlined,
+                        color: Colors.red,
                       ),
-                      Row(
-                        children: [
-                          downloaded
-                              ? TextButton(
-                                  style: TextButton.styleFrom(
-                                      backgroundColor: Colors.white),
-                                  onPressed: () {}, // already downloaded
-                                  child: const Text(
-                                    'Todos baixados',
-                                    style: TextStyle(color: Colors.grey),
-                                  ),
-                                )
-                              : TextButton(
-                                  style: TextButton.styleFrom(
-                                      backgroundColor: Colors.white),
-                                  onPressed: () {
-                                    downloadAll();
-                                  }, // download all
-                                  child: const Row(
-                                    children: [
-                                      Icon(Icons.download),
-                                      Text(
-                                        'Baixar todos',
-                                        style: TextStyle(color: Colors.black),
-                                      )
-                                    ],
-                                  ),
-                                ),
-                          isFavorite
-                              ? IconButton(
-                                  style: TextButton.styleFrom(
-                                      backgroundColor: Colors.white),
-                                  onPressed: () {
-                                    _bookToFavorite(false);
-                                  },
-                                  icon: const Icon(
-                                    Icons.bookmark,
-                                    color: Colors.red,
-                                  ),
-                                )
-                              : IconButton(
-                                  style: TextButton.styleFrom(
-                                      backgroundColor: Colors.white),
-                                  onPressed: () {
-                                    _bookToFavorite(true);
-                                  },
-                                  icon: const Icon(
-                                    Icons.bookmark_add_outlined,
-                                    color: Colors.red,
-                                  ),
-                                ),
-                        ],
-                      ),
-                    ],
-                  ),
+                      onPressed: onToggleFavorite,
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
-        ),
-        body: FutureBuilder<ListResult>(
-          future: futureFiles,
-          builder: (context, snapshot) {
-            if (snapshot.hasData) {
-              final files = snapshot.data!.items;
-              return ListView.builder(
-                itemCount: files.length,
-                itemBuilder: (context, index) {
-                  final file = files[index];
-                  String name = file.name.split('.mp3')[0];
-                  String? location = prefs.getString(file.name);
-                  double? progress = downloadProgress[index];
-                  return location != null
-                      ? ListTile(
-                          // true
-                          title: Text(
-                            name,
-                            textScaleFactor: 0.99,
-                          ),
-                          subtitle: const SizedBox(height: 0.5),
-                          trailing: const Icon(Icons.arrow_forward_ios,
-                              color: Colors.red),
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => Player(path: location),
-                              ),
-                            );
-                          },
-                        )
-                      : ListTile(
-                          // false
-                          title: Text(
-                            file.name,
-                            textScaleFactor: 0.99,
-                          ),
-                          subtitle: progress != null
-                              ? LinearProgressIndicator(
-                                  minHeight: 0.5,
-                                  value: progress,
-                                  backgroundColor: Colors.grey,
-                                )
-                              : const SizedBox(height: 0.5),
-                          trailing: const Icon(
-                            Icons.download,
-                            color: Colors.red,
-                          ),
-                          onTap: () => downloadFile(index, file),
-                        );
-                },
-              );
-            } else if (snapshot.hasError) {
-              return const Center(child: Text('error occurred'));
-            } else {
-              return const Center(child: CircularProgressIndicator());
-            }
-          },
-        ),
+        ],
       ),
+    );
+  }
+}
+
+class _TrackTile extends StatelessWidget {
+  const _TrackTile({
+    required this.track,
+    required this.downloaded,
+    required this.progress,
+    required this.onDownload,
+    required this.onPlay,
+  });
+
+  final Track track;
+  final bool downloaded;
+  final double? progress;
+  final VoidCallback onDownload;
+  final VoidCallback onPlay;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      title: Text(track.title),
+      subtitle: progress != null
+          ? LinearProgressIndicator(value: progress == 0 ? null : progress)
+          : null,
+      trailing: downloaded
+          ? const Icon(Icons.arrow_forward_ios, color: Colors.red, size: 20)
+          : const Icon(Icons.download, color: Colors.red),
+      onTap: downloaded ? onPlay : (progress == null ? onDownload : null),
     );
   }
 }

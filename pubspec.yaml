@@ -1,38 +1,69 @@
 name: project_oshiro
-description: A new Flutter project.
+description: "Oshiro — a Flutter audiobook library (Firestore + Firebase Storage) with a mock mode."
 publish_to: "none"
 
 version: 1.0.0+1
 
 environment:
-  sdk: ">=3.1.0 <4.0.0"
+  sdk: ">=3.9.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
-  cloud_firestore: ^4.9.0
-  cupertino_icons: ^1.0.2
-  firebase_core: ^2.15.1
-  firebase_storage: ^11.2.6
-  flutter_barcode_scanner: ^2.0.0
-  path_provider: ^2.1.0
-  dio: ^5.3.2
-  audioplayers: ^5.1.0
-  path: ^1.8.3
-  shared_preferences: ^2.2.1
+  cupertino_icons: ^1.0.8
+
+  # Firebase (real backend)
+  firebase_core: ^3.8.0
+  cloud_firestore: ^5.5.0
+  firebase_storage: ^12.3.7
+
+  # State management
+  flutter_riverpod: ^2.6.1
+
+  # Local persistence (Isar community fork — original isar is unmaintained)
+  isar_community: ^3.1.8
+  isar_community_flutter_libs: ^3.1.8
+
+  # Audio playback
+  just_audio: ^0.9.42
+  audio_service: ^0.18.15
+  just_audio_media_kit: ^2.0.6 # desktop (linux/windows) backend for just_audio
+
+  # Barcode / ISBN scanner
+  mobile_scanner: ^5.2.3
+
+  # Networking / files
+  dio: ^5.7.0
+  path_provider: ^2.1.5
+  path: ^1.9.0
+  cached_network_image: ^3.4.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^2.0.0
-  flutter_launcher_icons: ^0.13.1 #app icon generator
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.1
+
+  # Codegen
+  isar_community_generator: ^3.1.8
+  build_runner: ^2.4.13
+
+  # Testing
+  fake_cloud_firestore: ^3.1.0
+  mocktail: ^1.0.4
+
+# win32 5.0.7 (pulled transitively) uses UnmodifiableUint8ListView, removed in
+# Dart 3.9. Pin a 5.x that dropped it; only path_provider_windows uses it and
+# the 5.x API is stable across this range.
+dependency_overrides:
+  win32: ^5.14.0
 
 flutter:
   uses-material-design: true
   assets:
     - assets/
 
-flutter_icons:
-  image_path: "assets/images/icon.png" #change this to your app icon then run 'dart run flutter_launcher_icons'
+flutter_launcher_icons:
+  image_path: "assets/images/icon.png"
   android: true
   ios: true

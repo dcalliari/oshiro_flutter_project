@@ -12,12 +12,7 @@
           "package_name": "com.example.project_oshiro"
         }
       },
-      "oauth_client": [
-        {
-          "client_id": "366036719523-45hrdpuflb79kri97bebp585cqcklf48.apps.googleusercontent.com",
-          "client_type": 3
-        }
-      ],
+      "oauth_client": [],
       "api_key": [
         {
           "current_key": "AIzaSyBJQIllugn4WoaZLJsjXFavmp73o2cEa8o"
@@ -25,19 +20,26 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": [
-            {
-              "client_id": "366036719523-45hrdpuflb79kri97bebp585cqcklf48.apps.googleusercontent.com",
-              "client_type": 3
-            },
-            {
-              "client_id": "366036719523-emaulmdc5thvk9fkkd67ph6a9s4ninu5.apps.googleusercontent.com",
-              "client_type": 2,
-              "ios_info": {
-                "bundle_id": "com.example.flutterTemplate"
-              }
-            }
-          ]
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:366036719523:android:a41e8050e9aff677d42c16",
+        "android_client_info": {
+          "package_name": "dev.calliari.oshiro"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBJQIllugn4WoaZLJsjXFavmp73o2cEa8o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
         }
       }
     }
