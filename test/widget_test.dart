@@ -27,7 +27,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('Biblioteca'), findsOneWidget);
+    expect(find.text('Library'), findsOneWidget);
     expect(find.text('New Zest 1 Language Learning English Basic'),
         findsOneWidget);
   });

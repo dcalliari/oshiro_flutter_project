@@ -19,6 +19,7 @@ class BookSelected extends ConsumerWidget {
         automaticallyImplyLeading: false,
         actions: [
           IconButton(
+            tooltip: 'Close',
             icon: const Icon(Icons.close, size: 28),
             onPressed: () => Navigator.pop(context),
           ),
@@ -44,18 +45,23 @@ class BookSelected extends ConsumerWidget {
                 ?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 20),
-          _MetaRow(label: 'Autores', value: book.authors.join('\n')),
+          if (book.authors.isNotEmpty)
+            _MetaRow(label: 'Authors', value: book.authors.join('\n')),
           if (book.publisher != null)
-            _MetaRow(label: 'Editora', value: book.publisher!),
+            _MetaRow(label: 'Publisher', value: book.publisher!),
           if (book.published != null)
-            _MetaRow(label: 'Publicado', value: book.published!),
+            _MetaRow(label: 'Published', value: book.published!),
+          if (book.isbn.isNotEmpty) _MetaRow(label: 'ISBN', value: book.isbn),
           const SizedBox(height: 24),
           FilledButton.icon(
             icon: const Icon(Icons.add),
-            label: const Text('Adicionar esse Livro'),
+            label: const Text('Add to library'),
             onPressed: () async {
               await ref.read(libraryControllerProvider).add(book.id);
               if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Added "${book.name}" to your library.')),
+              );
               Navigator.pushReplacement(
                 context,
                 MaterialPageRoute(builder: (_) => TrackList(book: book)),

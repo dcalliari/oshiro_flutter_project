@@ -4,88 +4,351 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/book.dart';
 import '../providers/providers.dart';
 import '../widgets/book_cover.dart';
+import '../widgets/state_views.dart';
 import 'search.dart';
 import 'track_list.dart';
 
-class HomePage extends ConsumerWidget {
+class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final library = ref.watch(libraryProvider);
-    final favorites = ref.watch(favoritesProvider);
+  ConsumerState<HomePage> createState() => _HomePageState();
+}
 
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Biblioteca'),
-          centerTitle: true,
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.search),
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const Search()),
-              ),
-            ),
-          ],
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Todos'),
-              Tab(icon: Icon(Icons.bookmark), text: 'Favoritos'),
-            ],
+class _HomePageState extends ConsumerState<HomePage>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tab = TabController(length: 2, vsync: this);
+
+  /// When true the "All" list turns into a multi-select removal surface.
+  bool _selectionMode = false;
+  final Set<String> _selected = {};
+
+  @override
+  void dispose() {
+    _tab.dispose();
+    super.dispose();
+  }
+
+  void _enterSelection() {
+    setState(() {
+      _selectionMode = true;
+      _selected.clear();
+      _tab.index = 0;
+    });
+  }
+
+  void _exitSelection() {
+    setState(() {
+      _selectionMode = false;
+      _selected.clear();
+    });
+  }
+
+  void _toggleSelected(String bookId) {
+    setState(() {
+      if (!_selected.remove(bookId)) _selected.add(bookId);
+    });
+  }
+
+  void _openSearch() {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const Search()));
+  }
+
+  Future<bool> _confirm(String title, String message, String confirmLabel) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
           ),
-        ),
-        drawer: const _HomeDrawer(),
-        body: TabBarView(
-          children: [
-            _BookList(
-              books: library,
-              emptyLabel: 'Sem livros na biblioteca.',
-            ),
-            _BookList(
-              books: favorites,
-              emptyLabel: 'Sem favoritos marcados.',
-            ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(confirmLabel),
+          ),
+        ],
+      ),
+    );
+    return ok ?? false;
+  }
+
+  Future<void> _removeSelected() async {
+    final count = _selected.length;
+    if (count == 0) return;
+    final ok = await _confirm(
+      'Remove ${count == 1 ? 'book' : 'books'}?',
+      'This removes $count ${count == 1 ? 'book' : 'books'} from your library '
+          'and deletes any downloaded audio.',
+      'Remove',
+    );
+    if (!ok) return;
+    final library = ref.read(libraryControllerProvider);
+    final downloads = ref.read(downloadControllerProvider);
+    for (final id in _selected) {
+      await downloads.deleteBook(id);
+      await library.remove(id);
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Removed $count '
+          '${count == 1 ? 'book' : 'books'} from your library.')),
+    );
+    _exitSelection();
+  }
+
+  Future<void> _clearDownloadsSelected() async {
+    final count = _selected.length;
+    if (count == 0) return;
+    final ok = await _confirm(
+      'Delete downloads?',
+      'This deletes downloaded audio for $count '
+          '${count == 1 ? 'book' : 'books'} but keeps them in your library.',
+      'Delete',
+    );
+    if (!ok) return;
+    final downloads = ref.read(downloadControllerProvider);
+    for (final id in _selected) {
+      await downloads.deleteBook(id);
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Downloads deleted.')),
+    );
+    _exitSelection();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_selectionMode) return _buildSelectionScaffold();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Library'),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            tooltip: 'Search',
+            icon: const Icon(Icons.search),
+            onPressed: _openSearch,
+          ),
+        ],
+        bottom: TabBar(
+          controller: _tab,
+          tabs: const [
+            Tab(text: 'All'),
+            Tab(icon: Icon(Icons.bookmark), text: 'Favorites'),
           ],
         ),
+      ),
+      drawer: _HomeDrawer(onManage: _enterSelection),
+      body: TabBarView(
+        controller: _tab,
+        children: [
+          _AllBooksTab(onSearch: _openSearch),
+          _FavoritesTab(onSearch: _openSearch),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSelectionScaffold() {
+    final count = _selected.length;
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Done',
+          icon: const Icon(Icons.close),
+          onPressed: _exitSelection,
+        ),
+        title: Text(count == 0 ? 'Select books' : '$count selected'),
+        actions: [
+          IconButton(
+            tooltip: 'Delete downloads',
+            icon: const Icon(Icons.download_done),
+            onPressed: count == 0 ? null : _clearDownloadsSelected,
+          ),
+          IconButton(
+            tooltip: 'Remove from library',
+            icon: const Icon(Icons.delete_outline),
+            onPressed: count == 0 ? null : _removeSelected,
+          ),
+        ],
+      ),
+      body: _SelectableLibrary(
+        selected: _selected,
+        onToggle: _toggleSelected,
       ),
     );
   }
 }
 
-class _BookList extends StatelessWidget {
-  const _BookList({required this.books, required this.emptyLabel});
+// --------------------------------------------------------------- all books tab
 
-  final AsyncValue<List<Book>> books;
-  final String emptyLabel;
+class _AllBooksTab extends ConsumerWidget {
+  const _AllBooksTab({required this.onSearch});
+
+  final VoidCallback onSearch;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final library = ref.watch(libraryProvider);
+    final asGrid = ref.watch(libraryAsGridProvider).valueOrNull ?? false;
+
+    return library.when(
+      loading: () => const LoadingView(),
+      error: (e, _) => ErrorView(
+        message: 'Could not load your library.',
+        onRetry: () => ref.invalidate(libraryProvider),
+      ),
+      data: (books) {
+        if (books.isEmpty) {
+          return EmptyView(
+            icon: Icons.library_books_outlined,
+            title: 'Your library is empty',
+            subtitle: 'Search for audiobooks and add them to get started.',
+            actionLabel: 'Search books',
+            onAction: onSearch,
+          );
+        }
+        if (asGrid) return _BookGrid(books: books);
+        return _ReorderableBookList(books: books);
+      },
+    );
+  }
+}
+
+/// List view with drag-and-drop reordering, persisted through the controller.
+class _ReorderableBookList extends ConsumerWidget {
+  const _ReorderableBookList({required this.books});
+
+  final List<Book> books;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ReorderableListView.builder(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      itemCount: books.length,
+      onReorder: (oldIndex, newIndex) {
+        final ordered = [...books];
+        if (newIndex > oldIndex) newIndex -= 1;
+        final moved = ordered.removeAt(oldIndex);
+        ordered.insert(newIndex, moved);
+        ref
+            .read(libraryControllerProvider)
+            .reorder(ordered.map((b) => b.id).toList());
+      },
+      itemBuilder: (context, index) {
+        final book = books[index];
+        return ListTile(
+          key: ValueKey(book.id),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+          leading: SizedBox(
+            width: 48,
+            child: BookCover(url: book.coverUrl),
+          ),
+          title: Text(book.name),
+          subtitle: book.authors.isEmpty ? null : Text(book.authors.join(', ')),
+          trailing: ReorderableDragStartListener(
+            index: index,
+            child: const Icon(Icons.drag_handle, color: Colors.grey),
+          ),
+          onTap: () => _openBook(context, book),
+        );
+      },
+    );
+  }
+}
+
+class _BookGrid extends StatelessWidget {
+  const _BookGrid({required this.books});
+
+  final List<Book> books;
 
   @override
   Widget build(BuildContext context) {
-    return books.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(child: Text('Erro ao carregar: $e')),
-      data: (list) {
-        if (list.isEmpty) return _Empty(label: emptyLabel);
+    return GridView.builder(
+      padding: const EdgeInsets.all(12),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 180,
+        childAspectRatio: 0.62,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+      ),
+      itemCount: books.length,
+      itemBuilder: (context, index) {
+        final book = books[index];
+        return InkWell(
+          onTap: () => _openBook(context, book),
+          borderRadius: BorderRadius.circular(8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: BookCover(url: book.coverUrl),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                book.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+// --------------------------------------------------------------- favorites tab
+
+class _FavoritesTab extends ConsumerWidget {
+  const _FavoritesTab({required this.onSearch});
+
+  final VoidCallback onSearch;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final favorites = ref.watch(favoritesProvider);
+    final asGrid = ref.watch(libraryAsGridProvider).valueOrNull ?? false;
+
+    return favorites.when(
+      loading: () => const LoadingView(),
+      error: (e, _) => ErrorView(
+        message: 'Could not load your favorites.',
+        onRetry: () => ref.invalidate(favoritesProvider),
+      ),
+      data: (books) {
+        if (books.isEmpty) {
+          return const EmptyView(
+            icon: Icons.bookmark_border,
+            title: 'No favorites yet',
+            subtitle: 'Bookmark a book from its track list to see it here.',
+          );
+        }
+        if (asGrid) return _BookGrid(books: books);
         return ListView.builder(
-          itemCount: list.length,
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          itemCount: books.length,
           itemBuilder: (context, index) {
-            final book = list[index];
+            final book = books[index];
             return ListTile(
               contentPadding:
                   const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
-              leading: SizedBox(
-                width: 48,
-                child: BookCover(url: book.coverUrl),
-              ),
+              leading: SizedBox(width: 48, child: BookCover(url: book.coverUrl)),
               title: Text(book.name),
-              trailing: const Icon(Icons.arrow_forward_ios,
-                  color: Colors.red, size: 20),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => TrackList(book: book)),
-              ),
+              subtitle:
+                  book.authors.isEmpty ? null : Text(book.authors.join(', ')),
+              trailing: const Icon(Icons.bookmark, color: Colors.red),
+              onTap: () => _openBook(context, book),
             );
           },
         );
@@ -94,52 +357,99 @@ class _BookList extends StatelessWidget {
   }
 }
 
-class _Empty extends StatelessWidget {
-  const _Empty({required this.label});
+// ------------------------------------------------------------ selectable library
 
-  final String label;
+class _SelectableLibrary extends ConsumerWidget {
+  const _SelectableLibrary({required this.selected, required this.onToggle});
+
+  final Set<String> selected;
+  final void Function(String bookId) onToggle;
 
   @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label, style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 20),
-          FilledButton.tonal(
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const Search()),
-            ),
-            child: const Text('Buscar'),
-          ),
-        ],
+  Widget build(BuildContext context, WidgetRef ref) {
+    final library = ref.watch(libraryProvider);
+    return library.when(
+      loading: () => const LoadingView(),
+      error: (e, _) => ErrorView(
+        message: 'Could not load your library.',
+        onRetry: () => ref.invalidate(libraryProvider),
       ),
+      data: (books) {
+        if (books.isEmpty) {
+          return const EmptyView(
+            icon: Icons.library_books_outlined,
+            title: 'Your library is empty',
+          );
+        }
+        return ListView.builder(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          itemCount: books.length,
+          itemBuilder: (context, index) {
+            final book = books[index];
+            return CheckboxListTile(
+              value: selected.contains(book.id),
+              onChanged: (_) => onToggle(book.id),
+              secondary: SizedBox(width: 48, child: BookCover(url: book.coverUrl)),
+              title: Text(book.name),
+              subtitle:
+                  book.authors.isEmpty ? null : Text(book.authors.join(', ')),
+            );
+          },
+        );
+      },
     );
   }
 }
 
-class _HomeDrawer extends StatelessWidget {
-  const _HomeDrawer();
+void _openBook(BuildContext context, Book book) {
+  Navigator.push(
+    context,
+    MaterialPageRoute(builder: (_) => TrackList(book: book)),
+  );
+}
+
+// ----------------------------------------------------------------------- drawer
+
+class _HomeDrawer extends ConsumerWidget {
+  const _HomeDrawer({required this.onManage});
+
+  final VoidCallback onManage;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final asGrid = ref.watch(libraryAsGridProvider).valueOrNull ?? false;
+
     return Drawer(
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
-          const DrawerHeader(child: Text('Conteúdo')),
-          // TODO(phase-4): wire list/grid toggle and book removal.
-          ListTile(
-            leading: const Icon(Icons.list),
-            title: const Text('Exibir em Lista'),
-            onTap: () => Navigator.pop(context),
+          DrawerHeader(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primaryContainer,
+            ),
+            child: Align(
+              alignment: Alignment.bottomLeft,
+              child: Text(
+                'Oshiro',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+            ),
           ),
           ListTile(
-            leading: const Icon(Icons.delete),
-            title: const Text('Excluir Livros'),
-            onTap: () => Navigator.pop(context),
+            leading: Icon(asGrid ? Icons.view_list : Icons.grid_view),
+            title: Text(asGrid ? 'Show as list' : 'Show as grid'),
+            onTap: () {
+              ref.read(localStoreProvider).setLibraryAsGrid(!asGrid);
+              Navigator.pop(context);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete_outline),
+            title: const Text('Manage / remove books'),
+            onTap: () {
+              Navigator.pop(context);
+              onManage();
+            },
           ),
         ],
       ),

@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/book.dart';
 import '../providers/providers.dart';
+import '../widgets/barcode_scanner_page.dart';
 import '../widgets/book_cover.dart';
+import '../widgets/state_views.dart';
 import 'book_selected.dart';
 import 'track_list.dart';
 
@@ -31,13 +33,23 @@ class _SearchState extends ConsumerState<Search> {
     super.dispose();
   }
 
+  Future<void> _scan() async {
+    final code = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const BarcodeScannerPage()),
+    );
+    if (code == null || !mounted) return;
+    _controller.text = code;
+  }
+
   @override
   Widget build(BuildContext context) {
     final results = ref.watch(searchResultsProvider);
+    final query = ref.watch(searchQueryProvider).trim();
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Busca'),
+        title: const Text('Search'),
         centerTitle: true,
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(64),
@@ -45,33 +57,53 @@ class _SearchState extends ConsumerState<Search> {
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
             child: TextField(
               controller: _controller,
+              autofocus: true,
+              textInputAction: TextInputAction.search,
               decoration: InputDecoration(
-                hintText: 'Título, Autor, ISBN...',
+                hintText: 'Title, author, ISBN...',
                 prefixIcon: const Icon(Icons.search),
                 filled: true,
                 fillColor: Theme.of(context).colorScheme.surface,
                 border: const OutlineInputBorder(),
-                // TODO(phase-2): replace with mobile_scanner barcode capture.
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.qr_code_scanner),
-                  onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Leitor de código de barras em breve.'),
-                    ),
-                  ),
-                ),
+                suffixIcon: barcodeScannerSupported
+                    ? IconButton(
+                        tooltip: 'Scan barcode',
+                        icon: const Icon(Icons.qr_code_scanner),
+                        onPressed: _scan,
+                      )
+                    : null,
               ),
             ),
           ),
         ),
       ),
       body: results.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Erro: $e')),
-        data: (books) => ListView.builder(
-          itemCount: books.length,
-          itemBuilder: (context, index) => _SearchTile(book: books[index]),
+        loading: () => const LoadingView(),
+        error: (e, _) => ErrorView(
+          message: 'Search failed. Please try again.',
+          onRetry: () => ref.invalidate(searchResultsProvider),
         ),
+        data: (books) {
+          if (query.isEmpty) {
+            return const EmptyView(
+              icon: Icons.search,
+              title: 'Find your next audiobook',
+              subtitle: 'Search by title, author or ISBN — '
+                  'or scan a book barcode.',
+            );
+          }
+          if (books.isEmpty) {
+            return EmptyView(
+              icon: Icons.menu_book_outlined,
+              title: 'No results',
+              subtitle: 'Nothing matched "$query".',
+            );
+          }
+          return ListView.builder(
+            itemCount: books.length,
+            itemBuilder: (context, index) => _SearchTile(book: books[index]),
+          );
+        },
       ),
     );
   }
@@ -91,9 +123,17 @@ class _SearchTile extends ConsumerWidget {
       contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
       leading: SizedBox(width: 48, child: BookCover(url: book.coverUrl)),
       title: Text(book.name),
+      subtitle: book.authors.isEmpty ? null : Text(book.authors.join(', ')),
       trailing: inLibrary
-          ? const Icon(Icons.arrow_forward_ios, color: Colors.red, size: 20)
-          : const Icon(Icons.add, color: Colors.red, size: 28),
+          ? Tooltip(
+              message: 'In your library',
+              child: Icon(Icons.check_circle,
+                  color: Theme.of(context).colorScheme.primary, size: 24),
+            )
+          : const Tooltip(
+              message: 'View details',
+              child: Icon(Icons.add_circle_outline, color: Colors.red, size: 26),
+            ),
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(
