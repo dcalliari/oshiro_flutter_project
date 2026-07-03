@@ -1,0 +1,18 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Audiobook assets (covers, audio tracks) under /books are public to
+    // read. Uploads are never allowed from clients.
+    match /books/{allPaths=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Everything else is denied by default.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -3,6 +3,21 @@
 > Documento de retomada do projeto após período parado (último commit: set/2023).
 > Objetivo definido: **portfólio / aprendizado**.
 
+> **Status (jul/2026):** app funcionalmente completo. Fases 0–4 concluídas:
+> build destravado + toolchain atualizada; arquitetura Models + Repository +
+> Riverpod + Isar; telas sobre a nova base (Home com abas All/Favorites, toggle
+> lista/grade, reorder drag & drop, modo de seleção p/ remover livros e apagar
+> downloads); Search com `mobile_scanner`; player `just_audio` + `audio_service`
+> (playlist por livro, next/prev/seek reais, retomar posição por faixa,
+> velocidade 0.5x–2x/volume, background + lock screen no Android/iOS, desktop via
+> `just_audio_media_kit`); features secundárias e estados loading/erro/vazio.
+> Modo mock toca um sample de 30s empacotado. Fase 5 de qualidade/apresentação
+> feita: CI (GitHub Actions), regras Firebase (`firestore.rules`/`storage.rules`),
+> identidade do app (label "Oshiro", `dev.calliari.oshiro`) e README de portfólio.
+> Verificado: `flutter analyze` limpo, testes atuais passando, apk debug ok,
+> playback confirmado no Linux. Pendente: suíte de testes ampla (próxima onda).
+> Histórico abaixo preservado.
+
 ## 1. Propósito
 
 App Flutter de **biblioteca de audiolivros**. Metadados em **Firestore**

@@ -1,0 +1,18 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // The book catalog is public to read. Writes are never allowed from
+    // clients; the catalog is seeded/maintained out-of-band (see README).
+    match /books/{bookId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Everything else is denied by default.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
